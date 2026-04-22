@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>気柱共鳴：2m管物理モデル</title>
+    <style>
+        body { 
+            font-family: 'Helvetica Neue', Arial, sans-serif; 
+            background-color: #f8f9fa; 
+            color: #333; 
+            margin: 0; 
+            padding: 10px; 
+            height: 100vh;
+            box-sizing: border-box;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        #orientation-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            font-weight: bold;
+            text-align: center;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        @media (orientation: portrait) {
+            #orientation-overlay { display: flex; }
+            body { overflow: hidden; }
+        }
+
+        .container { 
+            display: flex; 
+            flex-direction: row; 
+            flex-wrap: wrap; 
+            justify-content: center; 
+            align-items: flex-start; 
+            gap: 20px; 
+            padding: 20px; 
+            background: white; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1); 
+            max-width: 1600px; 
+            max-height: 100%;
+            width: 100%;
+            overflow-y: auto;
+            margin: 0 auto; 
+            box-sizing: border-box;
+        }
+
+        .canvas-section { 
+            flex: 2; 
+            min-width: 600px; 
+            text-align: center; 
+        }
+        
+        .canvas-section h3 { margin-top: 0; margin-bottom: 12px; font-size: 1.6rem; } 
+
+        .info-panel { font-size: 16px; margin-bottom: 15px; color: #555; background: #eef7ff; padding: 12px; border-radius: 5px; }
+
+        canvas { 
+            background-color: #ffffff; 
+            border: 1px solid #ddd; 
+            border-radius: 4px; 
+            display: block; 
+            margin: 0 auto; 
+            max-width: 100%; 
+            height: auto; 
+            max-height: 65vh; 
+            object-fit: contain;
+        }
+        
+        .control-panel { 
+            flex: 1; 
+            min-width: 400px; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 15px; 
+        }
+
+        .settings-group { background: #fafafa; padding: 15px; border-radius: 8px; border-top: 4px solid #ccc; }
+        .freq-settings { border-top-color: #007bff; }
+        .temp-settings { border-top-color: #ff9800; }
+        
+        .slider-group { display: flex; flex-direction: column; align-items: center; margin-bottom: 5px; background: white; padding: 10px; border-radius: 4px; border: 1px solid #eee; }
+        .slider-group label { font-size: 16px; font-weight: bold; margin-bottom: 8px; } 
+        
+        .thermometer-wrapper {
+            display: flex;
+            align-items: center;
+            width: 95%;
+            margin: 10px 0 15px 0;
+            position: relative;
+        }
+        .thermometer-bulb {
+            width: 30px; 
+            height: 30px;
+            background: radial-gradient(circle at 35% 35%, #ff6b6b, #cc0000);
+            border-radius: 50%;
+            margin-right: -8px; 
+            z-index: 2;
+            box-shadow: inset -2px -2px 4px rgba(0,0,0,0.3), 1px 1px 2px rgba(0,0,0,0.2);
+            border: 1px solid #999;
+        }
+        #temp {
+            -webkit-appearance: none;
+            appearance: none;
+            flex-grow: 1;
+            height: 18px; 
+            background: #f0f0f0; 
+            border-radius: 0 9px 9px 0;
+            outline: none;
+            z-index: 1;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+            border: 1px solid #999;
+            border-left: none;
+            margin: 0;
+            min-height: auto; 
+        }
+        #temp::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 30px; 
+            background: #fff;
+            border: 1px solid #666;
+            border-radius: 4px;
+            cursor: pointer;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+        }
+        #temp::-moz-range-thumb {
+            width: 18px;
+            height: 30px;
+            background: #fff;
+            border: 1px solid #666;
+            border-radius: 4px;
+            cursor: pointer;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+        }
+        .thermometer-ticks {
+            position: absolute;
+            bottom: -8px;
+            left: 32px; 
+            right: 9px; 
+            display: flex;
+            justify-content: space-between;
+            pointer-events: none;
+        }
+        .thermometer-ticks span {
+            width: 1px;
+            height: 6px;
+            background: #555;
+        }
+
+        input[type=range]:not(#temp) { width: 90%; cursor: pointer; min-height: 48px; margin: 0; } 
+        button { 
+            padding: 10px; 
+            font-size: 16px; 
+            cursor: pointer; 
+            border: none; 
+            border-radius: 4px; 
+            font-weight: bold; 
+            transition: 0.2s; 
+            min-height: 48px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+        }
+
+        .common-controls { background: #eee; padding: 15px; border-radius: 8px; display: flex; flex-direction: column; gap: 12px; }
+        .button-group { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+        
+        #pauseBtn { background-color: #28a745; color: white; flex: 1; min-width: 120px; }
+        #slowBtn { background-color: #17a2b8; color: white; flex: 1; min-width: 120px; }
+        #slowBtn.active { background-color: #0c5460; }
+        #resetBtn { background-color: #f8f9fa; color: #333; border: 1px solid #ccc; flex: 1; min-width: 140px; }
+        
+        .toggle-container { display: flex; justify-content: center; gap: 10px; margin-top: 10px; }
+        .toggle-btn { background: #ddd; color: #333; flex: 1; padding: 10px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; }
+        .toggle-btn.active { background: #333; color: white; }
+
+        .res-indicator { font-size: 20px; font-weight: bold; height: 28px; color: #333; margin-top: 10px; } 
+    </style>
+</head>
+<body>
+
+<div id="orientation-overlay">端末を横向きにしてご使用ください</div>
+
+<div class="container">
+    <div class="canvas-section">
+        <h3>気柱共鳴シミュレーション (管長 L=2.0m)</h3>
+        
+        <div class="info-panel">
+            音速 <b>V = <span id="val-v">340.5</span> m/s</b> 
+            ( 室温：<span id="val-t-info">15.0</span>℃ ) |
+            波長 λ = <span id="val-lambda">---</span> m
+        </div>
+        
+        <canvas id="waveCanvas" width="900" height="480"></canvas>
+        <div id="resonanceMsg" class="res-indicator"></div>
+    </div>
+
+    <div class="control-panel">
+        <div class="settings-group freq-settings">
+            <strong>音源の設定</strong>
+            <div class="slider-group">
+                <label>振動数 f: <span id="val-freq">85</span> [Hz]</label>
+                <input type="range" id="freq" min="20" max="450" value="85" step="1" list="freq-snap">
+                <datalist id="freq-snap"></datalist>
+            </div>
+        </div>
+
+        <div class="settings-group temp-settings">
+            <strong>環境・条件の設定</strong>
+            <div class="slider-group">
+                <label>室温 T: <span id="val-temp">15.0</span> [℃]</label>
+                <div class="thermometer-wrapper">
+                    <div class="thermometer-bulb"></div>
+                    <input type="range" id="temp" min="-20" max="40" value="15" step="0.5">
+                    <div class="thermometer-ticks">
+                        <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="toggle-container">
+                <button id="openPipeBtn" class="toggle-btn active">開管：ON</button>
+                <button id="closedPipeBtn" class="toggle-btn active">閉管：ON</button>
+            </div>
+            
+            <div class="toggle-container" style="border-top: 1px dashed #ccc; padding-top: 15px; margin-top: 15px;">
+                <button id="waterModeBtn" class="toggle-btn" style="background-color: #3498db; color: white;">水位モード：OFF</button>
+            </div>
+
+            <!-- 初期状態はdisabledで半透明にしておく -->
+            <div class="slider-group" id="waterSliderGroup" style="opacity: 0.5; margin-top: 10px;">
+                <label>閉管の気柱長 l (水位): <span id="val-pipe-length">2.000</span> [m]</label>
+                <input type="range" id="pipeLength" min="0.100" max="2.000" value="2.000" step="0.001" list="length-snap" dir="rtl" disabled>
+                <datalist id="length-snap"></datalist>
+            </div>
+        </div>
+
+        <div class="common-controls">
+            <div class="button-group">
+                <button id="pauseBtn">▶ 再生</button>
+                <button id="slowBtn" class="active">スロー：ON</button>
+                <button id="resetBtn">時刻 0s に戻す</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('waveCanvas');
+    const ctx = canvas.getContext('2d');
+    const resonanceMsg = document.getElementById('resonanceMsg');
+    
+    const elements = {
+        freq: document.getElementById('freq'),
+        temp: document.getElementById('temp'),
+        pipeLength: document.getElementById('pipeLength'),
+        waterSliderGroup: document.getElementById('waterSliderGroup'),
+        waterModeBtn: document.getElementById('waterModeBtn'),
+        pauseBtn: document.getElementById('pauseBtn'),
+        slowBtn: document.getElementById('slowBtn'),
+        resetBtn: document.getElementById('resetBtn'),
+        openPipeBtn: document.getElementById('openPipeBtn'),
+        closedPipeBtn: document.getElementById('closedPipeBtn')
+    };
+
+    const L = 2.0; 
+    const PIPE_LEFT = 50; 
+    const PIPE_RIGHT = 750;
+    const PIPE_WIDTH_PX = PIPE_RIGHT - PIPE_LEFT;
+    const PIPE_HALF_HEIGHT = 50; 
+    
+    const CY_OPEN = 120;
+    const CY_CLOSED = 360;
+
+    let isPaused = true;
+    let isSlow = true;
+    let isWaterMode = false;
+    let t = 0;
+    
+    let isOpenActive = true;
+    let isClosedActive = true;
+
+    let resFreqs = [];
+    let resLengths = [];
+    
+    let snapFreqTarget = null;
+    let snapLenTarget = null;
+
+    // --- Web Audio API用の音声制御変数 ---
+    let audioCtx = null;
+    let osc = null;
+    let gainNode = null;
+    let isAudioInitialized = false;
+    let lastTargetFreq = 0;
+    let lastTargetGain = -1;
+
+    // 音声の初期化（再生ボタン押下時に実行）
+    function initAudio() {
+        if (!isAudioInitialized) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            osc = audioCtx.createOscillator();
+            gainNode = audioCtx.createGain();
+            
+            osc.type = 'sine'; // 耳障りでない純音（サイン波）
+            osc.frequency.value = parseFloat(elements.freq.value);
+            gainNode.gain.value = 0; // 初期音量はゼロ
+            
+            osc.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            
+            osc.start();
+            isAudioInitialized = true;
+        } else if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+    }
+
+    // 水位モードの切り替え処理
+    elements.waterModeBtn.onclick = () => {
+        isWaterMode = !isWaterMode;
+        elements.waterModeBtn.textContent = `水位モード：${isWaterMode ? 'ON' : 'OFF'}`;
+        
+        if (isWaterMode) {
+            elements.waterModeBtn.style.backgroundColor = "#2980b9";
+            elements.pipeLength.disabled = false;
+            elements.waterSliderGroup.style.opacity = 1.0;
+            // 水位モードONの時、まず閉管に水が満たされる（気柱長を最小の0.100mにする）
+            elements.pipeLength.value = 0.100;
+        } else {
+            elements.waterModeBtn.style.backgroundColor = "#3498db";
+            elements.pipeLength.disabled = true;
+            elements.waterSliderGroup.style.opacity = 0.5;
+            // 水位モードOFFの時、水がなくなり気柱長は2.000mに戻る
+            elements.pipeLength.value = 2.000;
+        }
+        
+        updateFreqSnaps();
+    };
+
+    function updateThermometerVisual() {
+        const val = parseFloat(elements.temp.value);
+        const min = parseFloat(elements.temp.min);
+        const max = parseFloat(elements.temp.max);
+        const percent = ((val - min) / (max - min)) * 100;
+        elements.temp.style.background = `linear-gradient(to right, #cc0000 0%, #cc0000 ${percent}%, #f0f0f0 ${percent}%, #f0f0f0 100%)`;
+    }
+
+    function updateFreqSnaps() {
+        const temp = parseFloat(elements.temp.value);
+        const L_closed = parseFloat(elements.pipeLength.value);
+        const V = 331.5 + 0.6 * temp;
+        
+        resFreqs = [];
+        const f0_open = V / (2 * L);
+        for (let i = 1; i <= 20; i++) {
+            const f_snap = Math.round(i * f0_open);
+            if (f_snap >= 20 && f_snap <= 450) resFreqs.push(f_snap);
+        }
+        
+        const f0_closed = V / (4 * L_closed);
+        for (let i = 1; i <= 10; i++) {
+            const f_snap = Math.round((2 * i - 1) * f0_closed);
+            if (f_snap >= 20 && f_snap <= 450) resFreqs.push(f_snap);
+        }
+
+        const freqDatalist = document.getElementById('freq-snap');
+        if (freqDatalist) {
+            freqDatalist.innerHTML = '';
+            resFreqs.forEach(f_val => {
+                let option = document.createElement('option');
+                option.value = f_val;
+                freqDatalist.appendChild(option);
+            });
+        }
+    }
+
+    function updateLengthSnaps() {
+        const temp = parseFloat(elements.temp.value);
+        const f = parseFloat(elements.freq.value);
+        const V = 331.5 + 0.6 * temp;
+
+        resLengths = [];
+        const lambda = V / f;
+        for (let i = 1; i <= 15; i++) {
+            const l_snap = (2 * i - 1) * lambda / 4;
+            if (l_snap >= 0.1 && l_snap <= 2.0) {
+                resLengths.push(l_snap);
+            }
+        }
+
+        const lenDatalist = document.getElementById('length-snap');
+        if (lenDatalist) {
+            lenDatalist.innerHTML = '';
+            resLengths.forEach(l_val => {
+                let option = document.createElement('option');
+                option.value = l_val.toFixed(3);
+                lenDatalist.appendChild(option);
+            });
+        }
+    }
+
+    elements.temp.addEventListener('input', () => {
+        updateThermometerVisual();
+        updateFreqSnaps();
+        updateLengthSnaps();
+    });
+    
+    // --- 強力なマグネティック（ヒステリシス）処理 ---
+    // 振動数スライダー
+    elements.freq.addEventListener('input', () => {
+        let rawVal = parseInt(elements.freq.value);
+
+        if (snapFreqTarget !== null) {
+            // スナップ（吸着）中：離脱閾値（±4Hz）以上指を動かしたらロック解除
+            if (Math.abs(rawVal - snapFreqTarget) > 4) {
+                snapFreqTarget = null;
+            } else {
+                // 閾値内ならスナップ位置にツマミを固定して早期リターン
+                elements.freq.value = snapFreqTarget;
+                updateLengthSnaps();
+                return;
+            }
+        }
+
+        if (snapFreqTarget === null) {
+            // 非スナップ中：吸着閾値（±1Hz）の範囲内に入ったらカチッと吸着
+            for (let res of resFreqs) {
+                if (Math.abs(rawVal - res) <= 1) {
+                    snapFreqTarget = res;
+                    elements.freq.value = res;
+                    break;
+                }
+            }
+        }
+        updateLengthSnaps();
+    });
+
+    // 水位スライダー
+    elements.pipeLength.addEventListener('input', () => {
+        let rawVal = parseFloat(elements.pipeLength.value);
+
+        if (snapLenTarget !== null) {
+            // スナップ（吸着）中：離脱閾値（±0.03m = 3cm）以上指を動かしたらロック解除
+            if (Math.abs(rawVal - snapLenTarget) > 0.03) {
+                snapLenTarget = null;
+            } else {
+                // 閾値内ならスナップ位置にツマミを固定して早期リターン
+                elements.pipeLength.value = snapLenTarget.toFixed(3);
+                updateFreqSnaps();
+                document.getElementById('val-pipe-length').textContent = snapLenTarget.toFixed(3);
+                return;
+            }
+        }
+
+        if (snapLenTarget === null) {
+            // 非スナップ中：吸着範囲を小さくし（±0.01m = 1cm）以内に入ったらカチッと吸着
+            for (let res of resLengths) {
+                if (Math.abs(rawVal - res) <= 0.01) {
+                    snapLenTarget = res;
+                    elements.pipeLength.value = res.toFixed(3);
+                    break;
+                }
+            }
+        }
+
+        updateFreqSnaps();
+        document.getElementById('val-pipe-length').textContent = parseFloat(elements.pipeLength.value).toFixed(3);
+    });
+    // ---------------------------------------------
+
+    updateFreqSnaps();
+    updateLengthSnaps(); 
+    updateThermometerVisual(); 
+
+    function updatePauseUI() {
+        elements.pauseBtn.textContent = isPaused ? "▶ 再生" : "❚❚ 停止";
+        elements.pauseBtn.style.backgroundColor = isPaused ? "#28a745" : "#ffc107";
+    }
+
+    window.addEventListener('keydown', (e) => {
+        if (e.code === 'Space') { 
+            e.preventDefault(); 
+            initAudio(); // スペースキー押下時にも音声を許可
+            isPaused = !isPaused; 
+            updatePauseUI(); 
+        }
+    });
+
+    function drawSpeaker(sy) {
+        const sx = PIPE_RIGHT + 40;
+        
+        ctx.fillStyle = "#444"; 
+        ctx.fillRect(sx, sy - 50, 40, 100);
+        ctx.fillStyle = "#222"; 
+        ctx.beginPath();
+        ctx.moveTo(sx, sy - 45); 
+        ctx.lineTo(sx - 15, sy - 60);
+        ctx.lineTo(sx - 15, sy + 60); 
+        ctx.lineTo(sx, sy + 45); 
+        ctx.fill();
+        ctx.strokeStyle = "#000"; 
+        ctx.lineWidth = 2; 
+        ctx.strokeRect(sx, sy - 50, 40, 100);
+    }
+
+    function drawPipe(mode, centerY, isActive, f, V, lambda, w, L_pipe) {
+        let isResonating = false;
+        
+        if (mode === 'open') {
+            const f0 = V / (2 * L);
+            const n = Math.max(1, Math.round(f / f0)); 
+            const f_res = n * f0;
+            isResonating = isActive && (f === Math.round(f_res));
+        } else {
+            const f0 = V / (4 * L_pipe);
+            const m_f = Math.max(1, 2 * Math.round((f / f0 - 1) / 2) + 1); 
+            const f_res = m_f * f0;
+            const resByFreq = (f === Math.round(f_res));
+
+            const m_l = Math.max(1, Math.round((4 * L_pipe / lambda + 1) / 2));
+            const l_res = (2 * m_l - 1) * lambda / 4;
+            const resByLen = (Math.abs(L_pipe - l_res) < 0.005); 
+
+            isResonating = isActive && (resByFreq || resByLen);
+        }
+
+        // 非共鳴時でも微小な波（音波）が管内に送られている様子を表現するため、振幅を完全にゼロにはしない
+        const maxProximity = isResonating ? 1.0 : 0.15; 
+        const currentAmp = isResonating ? (PIPE_HALF_HEIGHT - 5) : (PIPE_HALF_HEIGHT - 5) * 0.15;
+
+        let resStatusText = "停止";
+        if (isActive) {
+            resStatusText = isResonating ? "共鳴中！" : "---";
+        }
+
+        const currentPipeLeftX = PIPE_RIGHT - PIPE_WIDTH_PX * (L_pipe / L);
+        const currentPipeWidthPx = PIPE_RIGHT - currentPipeLeftX;
+
+        // 気圧の淡いグラデーション描画 (ONであれば非共鳴時もうっすら表示して波が送られていることを示す)
+        if (isActive) {
+            for (let x_px = currentPipeLeftX; x_px <= PIPE_RIGHT; x_px += 2) {
+                const x_m = ((x_px - currentPipeLeftX) / currentPipeWidthPx) * L_pipe;
+                const k = 2 * Math.PI / lambda;
+                
+                let p;
+                if (mode === 'open') {
+                    p = Math.sin(k * x_m) * Math.sin(w * t);
+                } else {
+                    p = -Math.cos(k * x_m) * Math.sin(w * t);
+                }
+                
+                const lightness = 98 - (p * 12 * maxProximity); 
+                ctx.fillStyle = `hsl(200, 70%, ${lightness}%)`;
+                ctx.fillRect(x_px, centerY - 50, 2, 100);
+            }
+        }
+
+        ctx.fillStyle = "#333";
+        ctx.font = "bold 16px sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText(mode === 'open' ? "【開管】" : "【閉管 (水入り実験)】", PIPE_LEFT, centerY - 65);
+
+        ctx.fillStyle = "#e74c3c";
+        ctx.font = "bold 12px sans-serif";
+        ctx.fillText("※赤線は媒質の変位（横波表示）", PIPE_LEFT + 190, centerY - 65);
+
+        ctx.strokeStyle = "#333"; 
+        ctx.lineWidth = 3; 
+        ctx.beginPath();
+        ctx.moveTo(PIPE_RIGHT, centerY - 50);
+        ctx.lineTo(PIPE_LEFT, centerY - 50);
+        
+        if (mode === 'closed') {
+            ctx.fillStyle = "rgba(52, 152, 219, 0.4)";
+            ctx.fillRect(PIPE_LEFT, centerY - 48, currentPipeLeftX - PIPE_LEFT, 96);
+            
+            ctx.moveTo(currentPipeLeftX, centerY - 50);
+            ctx.lineTo(currentPipeLeftX, centerY + 50);
+            
+            ctx.moveTo(PIPE_LEFT, centerY - 50);
+            ctx.lineTo(PIPE_LEFT, centerY + 50);
+        } else {
+            ctx.moveTo(PIPE_LEFT, centerY + 50); 
+        }
+        
+        ctx.lineTo(PIPE_RIGHT, centerY + 50);
+        ctx.stroke();
+
+        if (isResonating) {
+            ctx.strokeStyle = `rgba(255, 0, 0, ${Math.max(0.4, maxProximity)})`;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            for (let x_px = currentPipeLeftX; x_px <= PIPE_RIGHT; x_px++) {
+                const x_m = ((x_px - currentPipeLeftX) / currentPipeWidthPx) * L_pipe;
+                const k = 2 * Math.PI / lambda; 
+                
+                let y = (mode === 'open') ? 
+                    currentAmp * Math.cos(k * x_m) * Math.sin(w * t) : 
+                    currentAmp * Math.sin(k * x_m) * Math.sin(w * t);
+                    
+                if (x_px === currentPipeLeftX) ctx.moveTo(x_px, centerY - y);
+                else ctx.lineTo(x_px, centerY - y);
+            }
+            ctx.stroke();
+        }
+
+        const density = Math.max(2, Math.round(45 * (L_pipe / L))); 
+
+        const nodeIndices = new Set();
+        if (isResonating && isActive) {
+            for (let m = 0; m <= 10; m++) {
+                let nodeX_m = (mode === 'open') ? (m + 0.5) * lambda / 2 : m * lambda / 2;
+                if (nodeX_m > L_pipe + 0.05) break; 
+                
+                let minDiff = Infinity;
+                let closestIdx = -1;
+                for (let i = 0; i <= density; i++) {
+                    const x_m = (i / density) * L_pipe;
+                    const diff = Math.abs(x_m - nodeX_m);
+                    if (diff < minDiff) {
+                        minDiff = diff;
+                        closestIdx = i;
+                    }
+                }
+                if (closestIdx !== -1) {
+                    nodeIndices.add(closestIdx);
+                }
+            }
+        }
+
+        for (let i = 0; i <= density; i++) {
+            const baseX_px = currentPipeLeftX + (currentPipeWidthPx * i / density);
+            const x_m = ((baseX_px - currentPipeLeftX) / currentPipeWidthPx) * L_pipe;
+            const k = 2 * Math.PI / lambda;
+
+            let disp = 0;
+            let isNode = nodeIndices.has(i);
+
+            if (isActive) {
+                disp = (mode === 'open') ? 
+                    currentAmp * Math.cos(k * x_m) * Math.sin(w * t) : 
+                    currentAmp * Math.sin(k * x_m) * Math.sin(w * t);
+
+                if (isNode) {
+                    disp = 0; 
+                }
+            }
+
+            ctx.beginPath();
+            ctx.arc(baseX_px + disp, centerY, 4, 0, Math.PI * 2);
+            ctx.fillStyle = isNode ? "#ff0000" : "white";
+            ctx.fill();
+            ctx.strokeStyle = isNode ? "#880000" : "#000";
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+
+        drawSpeaker(centerY);
+
+        return resStatusText;
+    }
+
+    function drawAmplifierAndCables(f) {
+        const ax = 850; 
+        const ay = (CY_OPEN + CY_CLOSED) / 2; 
+        const sx = PIPE_RIGHT + 80; 
+        
+        ctx.strokeStyle = "#333";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(ax, ay - 10);
+        ctx.quadraticCurveTo(ax - 10, ay - 10, sx, CY_OPEN); 
+        ctx.moveTo(ax, ay + 10);
+        ctx.quadraticCurveTo(ax - 10, ay + 10, sx, CY_CLOSED);
+        ctx.stroke();
+
+        ctx.fillStyle = "#2c3e50";
+        ctx.fillRect(ax, ay - 35, 40, 70);
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(ax, ay - 35, 40, 70);
+        
+        ctx.fillStyle = "#ecf0f1";
+        ctx.fillRect(ax + 5, ay - 20, 30, 16);
+        ctx.fillStyle = "#000";
+        ctx.font = "bold 11px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText(`${f}`, ax + 20, ay - 8);
+        
+        const isAnyActive = isOpenActive || isClosedActive;
+        ctx.fillStyle = isAnyActive ? "#e74c3c" : "#7f8c8d";
+        ctx.beginPath();
+        ctx.arc(ax + 20, ay + 15, 4, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    function draw() {
+        const temp = parseFloat(elements.temp.value);
+        const V = 331.5 + 0.6 * temp;
+
+        const f = parseFloat(elements.freq.value);
+        const L_closed = parseFloat(elements.pipeLength.value);
+
+        const lambda = V / f;
+        const w = 2 * Math.PI * f;
+
+        document.getElementById('val-freq').textContent = f;
+        document.getElementById('val-temp').textContent = temp.toFixed(1);
+        document.getElementById('val-t-info').textContent = temp.toFixed(1);
+        document.getElementById('val-v').textContent = V.toFixed(1);
+        document.getElementById('val-lambda').textContent = lambda.toFixed(3);
+        document.getElementById('val-pipe-length').textContent = L_closed.toFixed(3);
+
+        if (!isPaused) {
+            const timeStep = isSlow ? 0.00005 : 0.0002; 
+            t += timeStep; 
+            if (t > 1.0) t -= 1.0; 
+        }
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const openStatus = drawPipe('open', CY_OPEN, isOpenActive, f, V, lambda, w, L);
+        const closedStatus = drawPipe('closed', CY_CLOSED, isClosedActive, f, V, lambda, w, L_closed);
+
+        drawAmplifierAndCables(f);
+
+        // --- 音声の音量・周波数の更新 ---
+        if (isAudioInitialized && audioCtx) {
+            // スライダー操作等で周波数が変わった場合、滑らかに移行
+            if (lastTargetFreq !== f) {
+                osc.frequency.setTargetAtTime(f, audioCtx.currentTime, 0.05);
+                lastTargetFreq = f;
+            }
+            
+            let targetGain = 0;
+            // 再生中かつ、少なくともどちらかの管がONの場合のみ音量を計算
+            if (!isPaused && (isOpenActive || isClosedActive)) {
+                if (openStatus === "共鳴中！" || closedStatus === "共鳴中！") {
+                    targetGain = 0.25; // 共鳴時は音が大きくなる
+                } else {
+                    targetGain = 0.02; // 非共鳴時はうっすら鳴る
+                }
+            }
+            
+            // 音量が変わる時だけ適用（クリックノイズを防ぐため漸近）
+            if (lastTargetGain !== targetGain) {
+                gainNode.gain.setTargetAtTime(targetGain, audioCtx.currentTime, 0.05);
+                lastTargetGain = targetGain;
+            }
+        }
+        // ---------------------------------
+
+        resonanceMsg.innerHTML = `
+            開管: <span style="color:${openStatus==='共鳴中！'?'#dc3545':'#007bff'}">${openStatus}</span> 
+            <span style="margin: 0 15px; color:#ccc;">|</span>
+            閉管: <span style="color:${closedStatus==='共鳴中！'?'#dc3545':'#007bff'}">${closedStatus}</span>
+        `;
+
+        requestAnimationFrame(draw);
+    }
+
+    elements.pauseBtn.onclick = () => {
+        initAudio(); // 再生ボタン押下時に音声を許可
+        isPaused = !isPaused;
+        updatePauseUI();
+    };
+
+    elements.slowBtn.onclick = () => {
+        isSlow = !isSlow;
+        elements.slowBtn.textContent = `スロー：${isSlow ? 'ON' : 'OFF'}`;
+        elements.slowBtn.classList.toggle('active', isSlow);
+    };
+    
+    elements.resetBtn.onclick = () => { 
+        t = 0; 
+        isPaused = true; 
+        updatePauseUI(); 
+    };
+    
+    elements.openPipeBtn.onclick = () => { 
+        isOpenActive = !isOpenActive; 
+        elements.openPipeBtn.textContent = `開管：${isOpenActive ? 'ON' : 'OFF'}`;
+        elements.openPipeBtn.classList.toggle('active', isOpenActive); 
+    };
+    
+    elements.closedPipeBtn.onclick = () => { 
+        isClosedActive = !isClosedActive; 
+        elements.closedPipeBtn.textContent = `閉管：${isClosedActive ? 'ON' : 'OFF'}`;
+        elements.closedPipeBtn.classList.toggle('active', isClosedActive); 
+    };
+
+    draw();
+</script>
+
+</body>
+</html>
